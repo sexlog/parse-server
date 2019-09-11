@@ -3,6 +3,7 @@ import Parse from 'parse/node';
 import { logger } from './logger';
 
 export const Types = {
+  beforeLogin: 'beforeLogin',
   beforeSave: 'beforeSave',
   afterSave: 'afterSave',
   beforeDelete: 'beforeDelete',
@@ -40,6 +41,11 @@ function validateClassNameForTriggers(className, type) {
     // allowing beforeSave would mess up the objects big time
     // TODO: Allow proper documented way of using nested increment ops
     throw 'Only afterSave is allowed on _PushStatus';
+  }
+  if (type === Types.beforeLogin && className !== '_User') {
+    // TODO: check if upstream code will handle `Error` instance rather
+    // than this anti-pattern of throwing strings
+    throw 'Only the _User class is allowed for the beforeLogin trigger';
   }
   return className;
 }
@@ -140,6 +146,29 @@ export function triggerExists(
 
 export function getFunction(functionName, applicationId) {
   return get(Category.Functions, functionName, applicationId);
+}
+
+export function getFunctionNames(applicationId) {
+  const store =
+    (_triggerStore[applicationId] &&
+      _triggerStore[applicationId][Category.Functions]) ||
+    {};
+  const functionNames = [];
+  const extractFunctionNames = (namespace, store) => {
+    Object.keys(store).forEach(name => {
+      const value = store[name];
+      if (namespace) {
+        name = `${namespace}.${name}`;
+      }
+      if (typeof value === 'function') {
+        functionNames.push(name);
+      } else {
+        extractFunctionNames(name, value);
+      }
+    });
+  };
+  extractFunctionNames(null, store);
+  return functionNames;
 }
 
 export function getJob(jobName, applicationId) {
@@ -254,10 +283,21 @@ export function getResponseObject(request, resolve, reject) {
       // Use the JSON response
       if (
         response &&
+        typeof response === 'object' &&
         !request.object.equals(response) &&
         request.triggerName === Types.beforeSave
       ) {
         return resolve(response);
+      }
+      if (
+        response &&
+        typeof response === 'object' &&
+        request.triggerName === Types.afterSave
+      ) {
+        return resolve(response);
+      }
+      if (request.triggerName === Types.afterSave) {
+        return resolve();
       }
       response = {};
       if (request.triggerName === Types.beforeSave) {
@@ -573,6 +613,20 @@ export function maybeRunTrigger(
             auth
           );
         }
+        // beforeSave is expected to return null (nothing)
+        if (triggerType === Types.beforeSave) {
+          if (promise && typeof promise.then === 'function') {
+            return promise.then(response => {
+              // response.object may come from express routing before hook
+              if (response && response.object) {
+                return response;
+              }
+              return null;
+            });
+          }
+          return null;
+        }
+
         return promise;
       })
       .then(success, error);

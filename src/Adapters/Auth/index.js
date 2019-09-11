@@ -1,5 +1,6 @@
 import loadAdapter from '../AdapterLoader';
 
+const apple = require('./apple');
 const facebook = require('./facebook');
 const facebookaccountkit = require('./facebookaccountkit');
 const instagram = require('./instagram');
@@ -12,10 +13,13 @@ const spotify = require('./spotify');
 const digits = require('./twitter'); // digits tokens are validated by twitter
 const janrainengage = require('./janrainengage');
 const janraincapture = require('./janraincapture');
+const line = require('./line');
 const vkontakte = require('./vkontakte');
 const qq = require('./qq');
 const wechat = require('./wechat');
 const weibo = require('./weibo');
+const oauth2 = require('./oauth2');
+const phantauth = require('./phantauth');
 
 const anonymous = {
   validateAuthData: () => {
@@ -27,6 +31,7 @@ const anonymous = {
 };
 
 const providers = {
+  apple,
   facebook,
   facebookaccountkit,
   instagram,
@@ -40,11 +45,14 @@ const providers = {
   digits,
   janrainengage,
   janraincapture,
+  line,
   vkontakte,
   qq,
   wechat,
   weibo,
+  phantauth,
 };
+
 function authDataValidator(adapter, appIds, options) {
   return function(authData) {
     return adapter.validateAuthData(authData, options).then(() => {
@@ -57,14 +65,21 @@ function authDataValidator(adapter, appIds, options) {
 }
 
 function loadAuthAdapter(provider, authOptions) {
-  const defaultAdapter = providers[provider];
-  const adapter = Object.assign({}, defaultAdapter);
+  let defaultAdapter = providers[provider];
   const providerOptions = authOptions[provider];
+  if (
+    providerOptions &&
+    Object.prototype.hasOwnProperty.call(providerOptions, 'oauth2') &&
+    providerOptions['oauth2'] === true
+  ) {
+    defaultAdapter = oauth2;
+  }
 
   if (!defaultAdapter && !providerOptions) {
     return;
   }
 
+  const adapter = Object.assign({}, defaultAdapter);
   const appIds = providerOptions ? providerOptions.appIds : undefined;
 
   // Try the configuration methods
@@ -83,6 +98,10 @@ function loadAuthAdapter(provider, authOptions) {
     }
   }
 
+  // TODO: create a new module from validateAdapter() in
+  // src/Controllers/AdaptableController.js so we can use it here for adapter
+  // validation based on the src/Adapters/Auth/AuthAdapter.js expected class
+  // signature.
   if (!adapter.validateAuthData || !adapter.validateAppId) {
     return;
   }
